@@ -31,7 +31,9 @@ package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
@@ -67,38 +69,42 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 //@Disabled
 public class BasicOmniOpMode_Linear extends LinearOpMode {
 
-    // Declare OpMode members for each of the 4 motors.
+    // Declare OpMode members for motors and servos.
     private ElapsedTime runtime = new ElapsedTime();
     private DcMotor leftFrontDrive = null;
     private DcMotor leftBackDrive = null;
     private DcMotor rightFrontDrive = null;
     private DcMotor rightBackDrive = null;
+    private DcMotor armExtender = null;
 
-    // Declare Servo Variables
-    static final double INCREMENT   = 0.01;     // amount to slew servo each CYCLE_MS cycle
-    static final int    CYCLE_MS    =   25;     // period of each cycle
-    static final double MAX_POS     =  1.0;     // Maximum rotational position
-    static final double MIN_POS     =  0.0;     // Minimum rotational position
+    CRServo intake;
+    Servo armRaiser;
+
+    // Declare Static Variables
+    static final double INTAKE_COLLECT   =  1.0;     // amount to slew servo each CYCLE_MS
+    static final double INTAKE_OFF     =  0.0;     // Maximum rotational position
+    static final double INTAKE_DEPOSIT     =  -0.5;     // Minimum rotational position
+    static final double ARM_UP     =  1.0;
+    static final double ARM_DOWN     =  0.0;
+
+    double power = 0.0;
+    double armPosition = 0.0;
+
+    int armLength = 0;
 
     // Define class members
-    Servo servo;
-    double position = 0.0; // Start at halfway position
-
     ElapsedTime myTimer = new ElapsedTime();
 
     @Override
     public void runOpMode() {
 
+        //region Hardware Declarations
         // Initialize the hardware variables. Note that the strings used here must correspond
         // to the names assigned during the robot configuration step on the DS or RC devices.
         leftFrontDrive  = hardwareMap.get(DcMotor.class, "leftFrontDrive");
         leftBackDrive  = hardwareMap.get(DcMotor.class, "leftBackDrive");
         rightFrontDrive = hardwareMap.get(DcMotor.class, "rightFrontDrive");
         rightBackDrive = hardwareMap.get(DcMotor.class, "rightBackDrive");
-
-        // Initialize servo
-        // Change the text in quotes to match any servo name on your robot.
-        servo = hardwareMap.get(Servo.class, "servoTest");
 
         // ########################################################################################
         // !!!            IMPORTANT Drive Information. Test your motor directions.            !!!!!
@@ -115,6 +121,16 @@ public class BasicOmniOpMode_Linear extends LinearOpMode {
         rightFrontDrive.setDirection(DcMotor.Direction.REVERSE);
         rightBackDrive.setDirection(DcMotor.Direction.REVERSE);
 
+        armExtender = hardwareMap.get(DcMotor.class, "armExtender");
+        armRaiser = hardwareMap.get(Servo.class, "armRaiserServo");
+        intake = hardwareMap.get(CRServo.class, "intakeServo");
+
+        armExtender.setTargetPosition(0);
+        armExtender.setDirection(DcMotor.Direction.FORWARD); //change if core hex motor is going wrong way
+        armExtender.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        armExtender.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        //endregion
+
         // Wait for the game to start (driver presses START)
         telemetry.addData("Status", "Initialized");
         telemetry.update();
@@ -125,6 +141,7 @@ public class BasicOmniOpMode_Linear extends LinearOpMode {
         // run until the end of the match (driver presses STOP)
         while (opModeIsActive()) {
 
+            //region Drivetrain Controller
             double max;
 
             // POV Mode uses left joystick to go forward & strafe, and right joystick to rotate.
@@ -152,23 +169,6 @@ public class BasicOmniOpMode_Linear extends LinearOpMode {
                 rightBackPower  /= max;
             }
 
-            // This is test code:
-            //
-            // Uncomment the following code to test your motor directions.
-            // Each button should make the corresponding motor run FORWARD.
-            //   1) First get all the motors to take to correct positions on the robot
-            //      by adjusting your Robot Configuration if necessary.
-            //   2) Then make sure they run in the correct direction by modifying the
-            //      the setDirection() calls above.
-            // Once the correct motors move in the correct direction re-comment this code.
-
-
-            //leftFrontPower  = gamepad1.x ? 1.0 : 0.0;  // X gamepad
-            //leftBackPower   = gamepad1.a ? 1.0 : 0.0;  // A gamepad
-            //rightFrontPower = gamepad1.y ? 1.0 : 0.0;  // Y gamepad
-            //rightBackPower  = gamepad1.b ? 1.0 : 0.0;  // B gamepad
-
-
             // Send calculated power to wheels
             leftFrontDrive.setPower(leftFrontPower);
             rightFrontDrive.setPower(rightFrontPower);
@@ -177,32 +177,74 @@ public class BasicOmniOpMode_Linear extends LinearOpMode {
 
             // Show the elapsed game time and wheel power.
             telemetry.addData("Status", "Run Time: " + runtime.toString());
-            telemetry.addData("Front left/Right", "%4.2f, %4.2f", leftFrontPower, rightFrontPower);
-            telemetry.addData("Back left/Right", "%4.2f, %4.2f", leftBackPower, rightBackPower);
+            telemetry.addData(">", "Forward/Backward: Left Joystick Vertical");
+            telemetry.addData(">", "Strafe: Left Joystick Horizontal");
+            telemetry.addData(">", "Rotate: Right Joystick Horizontal");
+            telemetry.addData("Front Power (Left/Right)", "%4.2f, %4.2f", leftFrontPower, rightFrontPower);
+            telemetry.addData("Back Power (Left/Right)", "%4.2f, %4.2f", leftBackPower, rightBackPower);
+            //endregion
 
-            // servo controlling
+            //region Arm Controller
 
-            telemetry.addData(">", "Press A to move servo." );
+            telemetry.addData(">", "Dpad for height, hold RT to extend.");
 
-            double currentTime = myTimer.time();
-
-                if (gamepad1.a && position < MAX_POS && currentTime > 0.01) {
-                    // Keep stepping up until max value
-                    position += INCREMENT;
-                    myTimer.reset();
+            if (gamepad1.dpad_up) {
+                telemetry.addData(">", "Ascending...");
+                if (armPosition <= ARM_UP) { //if not max
+                    armPosition += 0.05;
                 }
-                else if (!gamepad1.a && position >= MIN_POS && currentTime > 0.01) {
-                    // Keep stepping down until we hit the min value.
-                    position -= INCREMENT;
-                    myTimer.reset();
+            }
+            else if (gamepad1.dpad_down) {
+                telemetry.addData(">", "Lowering...");
+                if (armPosition >= ARM_DOWN){
+                    armPosition -= 0.05;
                 }
-                servo.setPosition(position);
-                sleep(CYCLE_MS);
-                idle();
-                // Display the current value
+            }
+            else if (gamepad1.right_trigger == 1.0) {
+                armLength = 20; //make sure this number is correct (higher = more pulled)
+                telemetry.addData(">", "Extending...");
+            }
+            else if (gamepad1.right_trigger == 0.0)
+            {
+                armLength = 0;
+                telemetry.addData(">", "Retracting...");
+            }
 
-            telemetry.addData("Servo Position", "%5.2f", position);
-            telemetry.addData("Timer", currentTime);
+            //change arm angle/height
+            armRaiser.setPosition(armPosition);
+
+            //change arm length
+            armExtender.setTargetPosition(armLength);
+            ((DcMotorEx) armExtender).setVelocity(24); //make sure THIS number is correct (increase to make faster)
+            armExtender.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            //runs to the desired position; in this case, pulls string __ amount to extend arm
+
+            telemetry.addData("armTarget: ", armExtender.getTargetPosition());
+            telemetry.addData("armEncoder: ", armExtender.getCurrentPosition());
+            //WHEN TESTING, MAKE SURE WHEN THESE TWO ARE EQUAL ON THE DRIVER HUB IT ISN'T BROKEN
+
+            //endregion
+
+            //region Intake Controller
+
+            telemetry.addData(">", "A to collect, X to deposit.");
+
+            if (gamepad1.a) {
+                telemetry.addData(">", "Collecting...");
+                power = INTAKE_COLLECT;
+            }
+            else if (gamepad1.x) {
+                telemetry.addData(">", "Depositing...");
+                power = INTAKE_DEPOSIT;
+            }
+            else {
+                telemetry.addData(">", "Intake Off");
+                power = INTAKE_OFF;
+            }
+            intake.setPower(power);
+
+            //endregion
+
             telemetry.update();
         }
     }}
